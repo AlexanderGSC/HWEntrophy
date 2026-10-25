@@ -8,7 +8,7 @@
 #include "esp_random.h"
 #include "esp_log.h"
 
-static const char *TAG = "ENTROPY_EIGEN";
+#define RGB_BUILTIN 8
 
 typedef struct {
     uint32_t trans[2][2];
@@ -40,23 +40,28 @@ static void evaluate_entropy_and_spectrum(const uint8_t *buffer, size_t length, 
     }
     *bias_out = (float)ones_count / (float)total_bits;
 
-    // Cálculo de probabilidades de transición
     float p00 = (float)markov->trans[0][0] / (markov->trans[0][0] + markov->trans[0][1]);
     float p11 = (float)markov->trans[1][1] / (markov->trans[1][0] + markov->trans[1][1]);
 
-    // Autovalor secundario lambda_2 (Tasa de mezcla de Markov)
-    // lambda_2 = tr(P) - 1 = p00 + p11 - 1
     *lambda2_out = p00 + p11 - 1.0f;
 }
 
+
 void app_main(void) {
-    ESP_LOGI(TAG, "=== ESP32-C6 NIST SP 800-90B Spectral Entropy Evaluator ===");
-    ESP_LOGI(TAG, "Target: DEKRA Hardware Security Certification Portfolio");
+
+    // Initial Delay
+    //vTaskDelay(pdMS_TO_TICKS(1500));
+
+    // Print Header
+    printf("CSV_HEADER:timestamp_ms,monobit_p1,p00,p01,p10,p11,lambda_2,mixing_rate\n");
 
     uint8_t entropy_buffer[256];
     markov_matrix_t markov;
 
+    uint32_t sample_counter = 0;
+
     while (1) {
+
         esp_fill_random(entropy_buffer, sizeof(entropy_buffer));
 
         float bias = 0.0f;
@@ -64,22 +69,19 @@ void app_main(void) {
         
         evaluate_entropy_and_spectrum(entropy_buffer, sizeof(entropy_buffer), &bias, &markov, &lambda2);
 
-        ESP_LOGI(TAG, "--- Spectral Markov Evaluation ---");
-        ESP_LOGI(TAG, "Monobit P(1): %.4f (Ideal: 0.5000)", bias);
-        
         if (markov.total_transitions > 0) {
             float p00 = (float)markov.trans[0][0] / (markov.trans[0][0] + markov.trans[0][1]);
             float p01 = (float)markov.trans[0][1] / (markov.trans[0][0] + markov.trans[0][1]);
             float p10 = (float)markov.trans[1][0] / (markov.trans[1][0] + markov.trans[1][1]);
             float p11 = (float)markov.trans[1][1] / (markov.trans[1][0] + markov.trans[1][1]);
 
-            ESP_LOGI(TAG, "Markov Matrix P:");
-            ESP_LOGI(TAG, "  [%.4f  %.4f]", p00, p01);
-            ESP_LOGI(TAG, "  [%.4f  %.4f]", p10, p11);
-            ESP_LOGI(TAG, "Eigenvalues: lambda_1 = 1.0000, lambda_2 = %.4f", lambda2);
-            ESP_LOGI(TAG, "Mixing Rate (|lambda_2|): %.4f (Target: near 0.0000)", fabsf(lambda2));
+            // CSV Format
+            printf("CSV_DATA:%lu,%6.4f,%6.4f,%6.4f,%6.4f,%6.4f,%6.4f,%6.4f\n",
+                   (unsigned long)(xTaskGetTickCount() * portTICK_PERIOD_MS),
+                   bias, p00, p01, p10, p11, lambda2, fabsf(lambda2));
         }
 
-        vTaskDelay(pdMS_TO_TICKS(4000));
+        sample_counter++;
+        vTaskDelay(pdMS_TO_TICKS(500)); // 0.5 Sec sample delay   
     }
 }
